@@ -43,6 +43,26 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS houses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        location TEXT NOT NULL,
+        invite_code TEXT NOT NULL UNIQUE,
+        created_by TEXT NOT NULL
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS house_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        house_id INTEGER NOT NULL,
+        user_name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        FOREIGN KEY (house_id) REFERENCES houses(id)
+    )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -153,3 +173,90 @@ def delete_settlement(settlement_id):
     )
     conn.commit()
     conn.close()
+
+# -----------------------------
+# Houses
+# -----------------------------
+def get_houses_by_user(user_name):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT h.*
+        FROM houses h
+        JOIN house_members hm ON h.id = hm.house_id
+        WHERE hm.user_name = ?
+        ORDER BY h.id DESC
+    """, (user_name,)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_house_by_invite_code(invite_code):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM houses WHERE invite_code = ?",
+        (invite_code,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_house(name, location, invite_code, created_by):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO houses (name, location, invite_code, created_by) VALUES (?, ?, ?, ?)",
+        (name, location, invite_code, created_by)
+    )
+
+    house_id = cursor.lastrowid
+
+    cursor.execute(
+        "INSERT INTO house_members (house_id, user_name, role) VALUES (?, ?, ?)",
+        (house_id, created_by, "owner")
+    )
+
+    conn.commit()
+    conn.close()
+
+    return house_id
+
+def join_house(house_id, user_name):
+    conn = get_connection()
+
+    existing = conn.execute(
+        "SELECT * FROM house_members WHERE house_id = ? AND user_name = ?",
+        (house_id, user_name)
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        return False
+
+    conn.execute(
+        "INSERT INTO house_members (house_id, user_name, role) VALUES (?, ?, ?)",
+        (house_id, user_name, "member")
+    )
+
+    conn.commit()
+    conn.close()
+
+    return True
+
+def count_house_members(house_id):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT COUNT(*) as count FROM house_members WHERE house_id = ?",
+        (house_id,)
+    ).fetchone()
+    conn.close()
+    return row["count"]
+
+def ensure_default_house(user_name):
+    user_houses = get_houses_by_user(user_name)
+
+    if len(user_houses) == 0:
+        create_house(
+            name="Sunny House",
+            location="Brisbane",
+            invite_code="SUNNY123",
+            created_by=user_name
+        )

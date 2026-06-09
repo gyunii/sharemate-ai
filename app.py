@@ -16,8 +16,15 @@ from database import (
     get_settlements,
     add_settlement,
     update_settlement_status,
-    delete_settlement
+    delete_settlement,
+    get_houses_by_user,
+    get_house_by_invite_code,
+    create_house,
+    join_house,
+    count_house_members,
+    ensure_default_house
 )
+
 
 st.set_page_config(
     page_title="ShareMate AI",
@@ -39,6 +46,10 @@ if "current_user" not in st.session_state:
 if "current_house" not in st.session_state:
     st.session_state["current_house"] = None
 
+if "current_house_id" not in st.session_state:
+    st.session_state["current_house_id"] = None
+
+
 def show_login_page():
     st.title("🏠 ShareMate AI")
     st.write("호주 쉐어하우스 공동생활 관리를 위한 AI 기반 서비스")
@@ -49,20 +60,119 @@ def show_login_page():
 
     email = st.text_input("이메일", placeholder="example@email.com")
     password = st.text_input("비밀번호", type="password")
-
+    
     if st.button("로그인"):
         if email.strip() == "" or password.strip() == "":
             st.error("이메일과 비밀번호를 입력해주세요.")
         else:
+            user_name = email.split("@")[0]
+            
             st.session_state["logged_in"] = True
-            st.session_state["current_user"] = email.split("@")[0]
-            st.session_state["current_house"] = "Sunny House"
+            st.session_state["current_user"] = user_name
+            ensure_default_house(user_name)
             st.rerun()
+            
+            st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
 
-    st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
+def show_house_select_page():
+    st.title("🏠 내 쉐어하우스")
+    st.write(f"{st.session_state['current_user']}님, 참여할 쉐어하우스를 선택하세요.")
+
+    user_name = st.session_state["current_user"]
+    houses = get_houses_by_user(user_name)
+
+    st.divider()
+
+    st.subheader("참여 중인 하우스")
+
+    if len(houses) == 0:
+        st.info("참여 중인 하우스가 없습니다.")
+    else:
+        for house in houses:
+            member_count = count_house_members(house["id"])
+
+            with st.container(border=True):
+                col1, col2, col3 = st.columns([4, 2, 2])
+
+                with col1:
+                    st.write(f"### {house['name']}")
+                    st.write(f"지역: {house['location']}")
+                    st.write(f"초대코드: `{house['invite_code']}`")
+
+                with col2:
+                    st.metric("멤버", f"{member_count}명")
+
+                with col3:
+                    if st.button("입장하기", key=f"enter_{house['id']}"):
+                        st.session_state["current_house"] = house["name"]
+                        st.session_state["current_house_id"] = house["id"]
+                        st.rerun()
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.subheader("새 하우스 만들기")
+
+        new_house_name = st.text_input("하우스 이름", placeholder="예: Brisbane Share House")
+        new_house_location = st.text_input("지역", placeholder="예: Sydney")
+
+        if st.button("하우스 만들기"):
+            if new_house_name.strip() == "":
+                st.error("하우스 이름을 입력해주세요.")
+            else:
+                invite_code = new_house_name.upper().replace(" ", "")[:5] + "123"
+
+                try:
+                    create_house(
+                        name=new_house_name,
+                        location=new_house_location if new_house_location else "Unknown",
+                        invite_code=invite_code,
+                        created_by=user_name
+                    )
+
+                    st.success(f"{new_house_name} 하우스가 생성되었습니다.")
+                    st.rerun()
+
+                except Exception:
+                    st.error("이미 존재하는 초대코드입니다. 하우스 이름을 조금 다르게 입력해주세요.")
+
+    with right:
+        st.subheader("초대코드로 참여하기")
+
+        invite_code_input = st.text_input("초대코드 입력", placeholder="예: SUNNY123")
+
+        if st.button("초대코드로 참여"):
+            matched_house = get_house_by_invite_code(invite_code_input)
+
+            if matched_house:
+                joined = join_house(matched_house["id"], user_name)
+
+                if joined:
+                    st.success(f"{matched_house['name']}에 참여했습니다.")
+                else:
+                    st.info("이미 참여 중인 하우스입니다.")
+
+                st.rerun()
+            else:
+                st.error("일치하는 초대코드가 없습니다.")
+
+    st.divider()
+
+    if st.button("로그아웃"):
+        st.session_state["logged_in"] = False
+        st.session_state["current_user"] = None
+        st.session_state["current_house"] = None
+        st.session_state["current_house_id"] = None
+        st.rerun()
 
 if not st.session_state["logged_in"]:
     show_login_page()
+    st.stop()
+
+if st.session_state["current_house"] is None:
+    show_house_select_page()
     st.stop()
 
 roommates = ["Minho", "Jina", "Kevin", "Sora"]
@@ -83,10 +193,16 @@ st.sidebar.title("🏠 ShareMate AI")
 st.sidebar.write(f"House: {st.session_state['current_house']}")
 st.sidebar.write(f"User: {st.session_state['current_user']}")
 
+if st.sidebar.button("하우스 변경"):
+    st.session_state["current_house"] = None
+    st.session_state["current_house_id"] = None
+    st.rerun()
+
 if st.sidebar.button("로그아웃"):
     st.session_state["logged_in"] = False
     st.session_state["current_user"] = None
     st.session_state["current_house"] = None
+    st.session_state["current_house_id"] = None
     st.rerun()
 
 menu = st.sidebar.radio(
