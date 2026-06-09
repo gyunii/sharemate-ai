@@ -27,6 +27,44 @@ st.set_page_config(
 
 init_db()
 
+# -----------------------------
+# Login / House Entry
+# -----------------------------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if "current_user" not in st.session_state:
+    st.session_state["current_user"] = None
+
+if "current_house" not in st.session_state:
+    st.session_state["current_house"] = None
+
+def show_login_page():
+    st.title("🏠 ShareMate AI")
+    st.write("호주 쉐어하우스 공동생활 관리를 위한 AI 기반 서비스")
+
+    st.divider()
+
+    st.subheader("로그인")
+
+    email = st.text_input("이메일", placeholder="example@email.com")
+    password = st.text_input("비밀번호", type="password")
+
+    if st.button("로그인"):
+        if email.strip() == "" or password.strip() == "":
+            st.error("이메일과 비밀번호를 입력해주세요.")
+        else:
+            st.session_state["logged_in"] = True
+            st.session_state["current_user"] = email.split("@")[0]
+            st.session_state["current_house"] = "Sunny House"
+            st.rerun()
+
+    st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
+
+if not st.session_state["logged_in"]:
+    show_login_page()
+    st.stop()
+
 roommates = ["Minho", "Jina", "Kevin", "Sora"]
 
 def fake_ai_analyze_receipt():
@@ -42,7 +80,14 @@ def fake_ai_analyze_receipt():
     }
 
 st.sidebar.title("🏠 ShareMate AI")
-st.sidebar.write("Sunny House")
+st.sidebar.write(f"House: {st.session_state['current_house']}")
+st.sidebar.write(f"User: {st.session_state['current_user']}")
+
+if st.sidebar.button("로그아웃"):
+    st.session_state["logged_in"] = False
+    st.session_state["current_user"] = None
+    st.session_state["current_house"] = None
+    st.rerun()
 
 menu = st.sidebar.radio(
     "메뉴",
@@ -53,7 +98,7 @@ menu = st.sidebar.radio(
 # Dashboard
 # -----------------------------
 if menu == "Dashboard":
-    st.title("🏠 Sunny House Dashboard")
+    st.title(f"🏠 {st.session_state['current_house']} Dashboard")
     st.write("호주 쉐어하우스 공동생활 관리 대시보드")
 
     chores = get_chores()
