@@ -217,9 +217,11 @@ if menu == "Dashboard":
     st.title(f"🏠 {st.session_state['current_house']} Dashboard")
     st.write("호주 쉐어하우스 공동생활 관리 대시보드")
 
-    chores = get_chores()
-    shopping_items = get_shopping_items()
-    settlements = get_settlements()
+    house_id = st.session_state["current_house_id"]
+
+    chores = get_chores(house_id)
+    shopping_items = get_shopping_items(house_id)
+    settlements = get_settlements(house_id)
 
     pending_settlement_total = sum(
         item["amount"] for item in settlements
@@ -414,8 +416,9 @@ elif menu == "Receipt Split":
                             row["content"],
                             row["debtor"],
                             row["creditor"],
-                            row["amount"]
-                        )
+                            row["amount"],
+                            st.session_state["current_house_id"]
+                            )
 
                     settlement_df = pd.DataFrame(settlement_rows)
                     settlement_df = settlement_df.rename(columns={
@@ -445,7 +448,7 @@ elif menu == "Settlements":
 
     st.divider()
 
-    settlements = get_settlements()
+    settlements = get_settlements(st.session_state["current_house_id"])
 
     if len(settlements) == 0:
         st.info("정산 내역이 없습니다.")
@@ -532,7 +535,11 @@ elif menu == "Chores":
         if chore_title.strip() == "":
             st.error("할 일 이름을 입력해주세요.")
         else:
-            add_chore(chore_title, assigned_to, str(due_date))
+            add_chore(chore_title,
+                      assigned_to,
+                      str(due_date),
+                      st.session_state["current_house_id"]
+                      )
             st.success(f"{assigned_to} 담당으로 '{chore_title}' 할 일이 추가되었습니다.")
             st.rerun()
 
@@ -540,7 +547,7 @@ elif menu == "Chores":
 
     st.subheader("이번 주 Chore")
 
-    chores = get_chores()
+    chores = get_chores(st.session_state["current_house_id"])
 
     if len(chores) == 0:
         st.info("등록된 할 일이 없습니다.")
@@ -598,7 +605,11 @@ elif menu == "Shopping List":
         if item_name.strip() == "":
             st.error("물품명을 입력해주세요.")
         else:
-            add_shopping_item(item_name, added_by)
+            add_shopping_item(
+                item_name,
+                added_by,
+                st.session_state["current_house_id"]
+                )
             st.success(f"'{item_name}' 항목이 공동 장바구니에 추가되었습니다.")
             st.rerun()
 
@@ -606,7 +617,7 @@ elif menu == "Shopping List":
 
     st.subheader("공동 장바구니")
 
-    shopping_items = get_shopping_items()
+    shopping_items = get_shopping_items(st.session_state["current_house_id"])
 
     if len(shopping_items) == 0:
         st.info("등록된 장바구니 항목이 없습니다.")
