@@ -1,5 +1,23 @@
 import streamlit as st
+import pandas as pd
 from PIL import Image
+from datetime import date
+
+from database import (
+    init_db,
+    get_chores,
+    add_chore,
+    update_chore_status,
+    delete_chore,
+    get_shopping_items,
+    add_shopping_item,
+    update_shopping_status,
+    delete_shopping_item,
+    get_settlements,
+    add_settlement,
+    update_settlement_status,
+    delete_settlement
+)
 
 st.set_page_config(
     page_title="ShareMate AI",
@@ -7,27 +25,455 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🏠 ShareMate AI")
-st.write("AI 영수증 인식 기반 쉐어하우스 공동생활 관리 서비스")
+init_db()
 
-st.divider()
+roommates = ["Minho", "Jina", "Kevin", "Sora"]
 
-st.subheader("1. 영수증 이미지 업로드")
+def fake_ai_analyze_receipt():
+    return {
+        "store_name": "Woolworths",
+        "items": [
+            {"name": "Milk", "price": 3.50},
+            {"name": "Toilet Paper", "price": 8.00},
+            {"name": "Chips", "price": 4.20},
+            {"name": "Detergent", "price": 7.30}
+        ],
+        "total": 23.00
+    }
 
-uploaded_file = st.file_uploader(
-    "영수증 이미지를 업로드하세요",
-    type=["jpg", "jpeg", "png"]
+st.sidebar.title("🏠 ShareMate AI")
+st.sidebar.write("Sunny House")
+
+menu = st.sidebar.radio(
+    "메뉴",
+    ["Dashboard", "Receipt Split", "Settlements", "Chores", "Shopping List"]
 )
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+# -----------------------------
+# Dashboard
+# -----------------------------
+if menu == "Dashboard":
+    st.title("🏠 Sunny House Dashboard")
+    st.write("호주 쉐어하우스 공동생활 관리 대시보드")
 
-    st.image(
-        image,
-        caption="업로드한 영수증",
-        use_container_width=True
+    chores = get_chores()
+    shopping_items = get_shopping_items()
+    settlements = get_settlements()
+
+    pending_settlement_total = sum(
+        item["amount"] for item in settlements
+        if item["status"] == "대기"
     )
 
-    st.success("이미지 업로드 성공")
-else:
-    st.info("JPG, JPEG, PNG 형식의 영수증 이미지를 선택해주세요.")
+    pending_chores = len([
+        item for item in chores
+        if item["status"] == "진행 전"
+    ])
+
+    need_buy_items = len([
+        item for item in shopping_items
+        if item["status"] == "구매 필요"
+    ])
+
+    st.divider()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("하우스 멤버", "4명")
+
+    with col2:
+        st.metric("정산 대기", f"${pending_settlement_total:.2f}")
+
+    with col3:
+        st.metric("남은 Chore", f"{pending_chores}개")
+
+    with col4:
+        st.metric("구매 필요 물품", f"{need_buy_items}개")
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.subheader("이번 주 Chore")
+
+        if chores:
+            chore_df = pd.DataFrame(chores)
+            chore_df = chore_df.rename(columns={
+                "title": "할 일",
+                "assigned_to": "담당자",
+                "due_date": "날짜",
+                "status": "상태"
+            })
+
+            st.dataframe(
+                chore_df[["할 일", "담당자", "날짜", "상태"]],
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("등록된 Chore가 없습니다.")
+
+    with right:
+        st.subheader("공동 장바구니")
+
+        if shopping_items:
+            shopping_df = pd.DataFrame(shopping_items)
+            shopping_df = shopping_df.rename(columns={
+                "item_name": "물품",
+                "added_by": "추가한 사람",
+                "status": "상태"
+            })
+
+            st.dataframe(
+                shopping_df[["물품", "추가한 사람", "상태"]],
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("등록된 장바구니 항목이 없습니다.")
+
+    st.divider()
+
+    st.subheader("최근 정산 내역")
+
+    if settlements:
+        settlement_df = pd.DataFrame(settlements)
+        settlement_df = settlement_df.rename(columns={
+            "content": "내용",
+            "debtor": "돈 내야 하는 사람",
+            "creditor": "돈 받을 사람",
+            "amount": "금액",
+            "status": "상태"
+        })
+
+        settlement_df["금액"] = settlement_df["금액"].apply(lambda x: f"${x:.2f}")
+
+        st.dataframe(
+            settlement_df[["내용", "돈 내야 하는 사람", "돈 받을 사람", "금액", "상태"]],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("정산 내역이 없습니다.")
+
+# -----------------------------
+# Receipt Split
+# -----------------------------
+elif menu == "Receipt Split":
+    st.title("🧾 Receipt Split")
+    st.write("영수증 이미지를 업로드하면 AI가 품목과 금액을 추출하고 1/N 정산을 생성합니다.")
+
+    st.divider()
+
+    st.subheader("1. 영수증 이미지 업로드")
+
+    uploaded_file = st.file_uploader(
+        "영수증 이미지를 업로드하세요",
+        type=["jpg", "jpeg", "png"]
+    )
+
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+
+        st.image(
+            image,
+            caption="업로드한 영수증",
+            use_container_width=True
+        )
+
+        if st.button("AI로 영수증 분석하기"):
+            st.session_state["receipt_data"] = fake_ai_analyze_receipt()
+            st.success("AI 분석 완료")
+
+    else:
+        st.info("JPG, JPEG, PNG 형식의 영수증 이미지를 선택해주세요.")
+
+    if "receipt_data" in st.session_state:
+        receipt_data = st.session_state["receipt_data"]
+
+        st.divider()
+        st.subheader("2. AI 분석 결과")
+
+        st.write(f"매장명: {receipt_data['store_name']}")
+        st.write(f"영수증 총액: ${receipt_data['total']:.2f}")
+
+        df = pd.DataFrame(receipt_data["items"])
+        df["is_shared"] = True
+
+        edited_df = st.data_editor(
+            df,
+            column_config={
+                "name": "품목명",
+                "price": st.column_config.NumberColumn("금액", format="$%.2f"),
+                "is_shared": st.column_config.CheckboxColumn("공용 여부")
+            },
+            use_container_width=True,
+            hide_index=True,
+            key="receipt_items_editor"
+        )
+
+        shared_total = edited_df[edited_df["is_shared"] == True]["price"].sum()
+
+        st.metric("공용 품목 합계", f"${shared_total:.2f}")
+
+        st.divider()
+        st.subheader("3. 1/N 정산")
+
+        payer = st.selectbox("결제한 사람", roommates)
+
+        selected_members = st.multiselect(
+            "정산 대상 선택",
+            roommates,
+            default=roommates
+        )
+
+        if st.button("정산 생성하기"):
+            if len(selected_members) == 0:
+                st.error("정산 대상이 최소 1명 이상 필요합니다.")
+            else:
+                share_amount = shared_total / len(selected_members)
+
+                settlement_rows = []
+
+                for member in selected_members:
+                    if member != payer:
+                        settlement_rows.append({
+                            "content": f"{receipt_data['store_name']} 영수증",
+                            "debtor": member,
+                            "creditor": payer,
+                            "amount": round(share_amount, 2),
+                            "status": "대기"
+                        })
+
+                if settlement_rows:
+                    for row in settlement_rows:
+                        add_settlement(
+                            row["content"],
+                            row["debtor"],
+                            row["creditor"],
+                            row["amount"]
+                        )
+
+                    settlement_df = pd.DataFrame(settlement_rows)
+                    settlement_df = settlement_df.rename(columns={
+                        "content": "내용",
+                        "debtor": "돈 내야 하는 사람",
+                        "creditor": "돈 받을 사람",
+                        "amount": "금액",
+                        "status": "상태"
+                    })
+
+                    st.subheader("정산 결과")
+                    st.dataframe(
+                        settlement_df[["내용", "돈 내야 하는 사람", "돈 받을 사람", "금액", "상태"]],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    st.success("정산 생성 완료. DB와 Dashboard에 반영되었습니다.")
+                else:
+                    st.info("결제자만 정산 대상에 포함되어 있어 받을 금액이 없습니다.")
+# -----------------------------
+# Settlements
+# -----------------------------
+elif menu == "Settlements":
+    st.title("💸 Settlements")
+    st.write("룸메이트 간 정산 내역을 확인하고 결제 완료 처리합니다.")
+
+    st.divider()
+
+    settlements = get_settlements()
+
+    if len(settlements) == 0:
+        st.info("정산 내역이 없습니다.")
+    else:
+        pending_total = sum(
+            item["amount"] for item in settlements
+            if item["status"] == "대기"
+        )
+
+        paid_total = sum(
+            item["amount"] for item in settlements
+            if item["status"] == "완료"
+        )
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("전체 정산 건수", f"{len(settlements)}건")
+
+        with col2:
+            st.metric("정산 대기 금액", f"${pending_total:.2f}")
+
+        with col3:
+            st.metric("완료 금액", f"${paid_total:.2f}")
+
+        st.divider()
+
+        st.subheader("정산 내역")
+
+        for settlement in settlements:
+            with st.container(border=True):
+                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 2])
+
+                with col1:
+                    st.write(f"{settlement['content']}")
+
+                with col2:
+                    st.write(f"내야 할 사람: {settlement['debtor']}")
+
+                with col3:
+                    st.write(f"받을 사람: {settlement['creditor']}")
+
+                with col4:
+                    st.write(f"${settlement['amount']:.2f}")
+                    st.write(f"상태: {settlement['status']}")
+
+                with col5:
+                    if settlement["status"] == "대기":
+                        if st.button("결제 완료", key=f"paid_settlement_{settlement['id']}"):
+                            update_settlement_status(settlement["id"], "완료")
+                            st.rerun()
+                    else:
+                        if st.button("대기로 변경", key=f"pending_settlement_{settlement['id']}"):
+                            update_settlement_status(settlement["id"], "대기")
+                            st.rerun()
+                
+                with col6:
+                    if st.button("삭제", key=f"delete_settlement_{settlement['id']}"):
+                        delete_settlement(settlement["id"])
+                        st.rerun()
+# -----------------------------
+# Chores
+# -----------------------------
+elif menu == "Chores":
+    st.title("🧹 Chores")
+    st.write("쉐어하우스 청소 당번을 관리합니다.")
+
+    st.divider()
+
+    st.subheader("할 일 추가")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        chore_title = st.text_input("할 일 이름", placeholder="예: 화장실 청소")
+
+    with col2:
+        assigned_to = st.selectbox("담당자", roommates)
+
+    with col3:
+        due_date = st.date_input("마감일", value=date.today())
+
+    if st.button("할 일 추가하기"):
+        if chore_title.strip() == "":
+            st.error("할 일 이름을 입력해주세요.")
+        else:
+            add_chore(chore_title, assigned_to, str(due_date))
+            st.success(f"{assigned_to} 담당으로 '{chore_title}' 할 일이 추가되었습니다.")
+            st.rerun()
+
+    st.divider()
+
+    st.subheader("이번 주 Chore")
+
+    chores = get_chores()
+
+    if len(chores) == 0:
+        st.info("등록된 할 일이 없습니다.")
+    else:
+        for chore in chores:
+            with st.container(border=True):
+                col1, col2, col3, col4, col5, col6 = st.columns([3, 2, 2, 2, 2, 2])
+
+                with col1:
+                    st.write(f"{chore['title']}")
+
+                with col2:
+                    st.write(chore["assigned_to"])
+
+                with col3:
+                    st.write(chore["due_date"])
+
+                with col4:
+                    st.write(chore["status"])
+
+                with col5:
+                    if chore["status"] == "진행 전":
+                        if st.button("완료", key=f"complete_chore_{chore['id']}"):
+                            update_chore_status(chore["id"], "완료")
+                            st.rerun()
+                    else:
+                        if st.button("되돌리기", key=f"undo_chore_{chore['id']}"):
+                            update_chore_status(chore["id"], "진행 전")
+                            st.rerun()
+                with col6:
+                    if st.button("삭제", key=f"delete_chore_{chore['id']}"):
+                        delete_chore(chore["id"])
+                        st.rerun()
+
+# -----------------------------
+# Shopping List
+# -----------------------------
+elif menu == "Shopping List":
+    st.title("🛒 Shopping List")
+    st.write("공용 생필품 장바구니를 관리합니다.")
+
+    st.divider()
+
+    st.subheader("물품 추가")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        item_name = st.text_input("물품명", placeholder="예: 우유, 휴지, 세제")
+
+    with col2:
+        added_by = st.selectbox("추가한 사람", roommates)
+
+    if st.button("장바구니에 추가"):
+        if item_name.strip() == "":
+            st.error("물품명을 입력해주세요.")
+        else:
+            add_shopping_item(item_name, added_by)
+            st.success(f"'{item_name}' 항목이 공동 장바구니에 추가되었습니다.")
+            st.rerun()
+
+    st.divider()
+
+    st.subheader("공동 장바구니")
+
+    shopping_items = get_shopping_items()
+
+    if len(shopping_items) == 0:
+        st.info("등록된 장바구니 항목이 없습니다.")
+    else:
+        for item in shopping_items:
+            with st.container(border=True):
+                col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 2])
+
+                with col1:
+                    st.write(f"{item['item_name']}")
+
+                with col2:
+                    st.write(item["added_by"])
+
+                with col3:
+                    st.write(item["status"])
+
+                with col4:
+                    if item["status"] == "구매 필요":
+                        if st.button("구매 완료", key=f"buy_item_{item['id']}"):
+                            update_shopping_status(item["id"], "구매 완료")
+                            st.rerun()
+                    else:
+                        if st.button("다시 필요", key=f"need_item_{item['id']}"):
+                            update_shopping_status(item["id"], "구매 필요")
+                            st.rerun()
+
+                with col5:
+                    if st.button("삭제", key=f"delete_item_{item['id']}"):
+                        delete_shopping_item(item["id"])
+                        st.rerun()
