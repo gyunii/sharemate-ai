@@ -22,7 +22,9 @@ from database import (
     create_house,
     join_house,
     count_house_members,
-    ensure_default_house
+    ensure_default_house,
+    get_house_members,
+    get_house_by_id
 )
 
 
@@ -69,10 +71,9 @@ def show_login_page():
             
             st.session_state["logged_in"] = True
             st.session_state["current_user"] = user_name
-            ensure_default_house(user_name)
             st.rerun()
             
-            st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
+    st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
 
 def show_house_select_page():
     st.title("🏠 내 쉐어하우스")
@@ -175,7 +176,11 @@ if st.session_state["current_house"] is None:
     show_house_select_page()
     st.stop()
 
-roommates = ["Minho", "Jina", "Kevin", "Sora"]
+house_members = get_house_members(st.session_state["current_house_id"])
+roommates = [member["user_name"] for member in house_members]
+
+if len(roommates) == 0:
+    roommates = [st.session_state["current_user"]]
 
 def fake_ai_analyze_receipt():
     return {
@@ -189,9 +194,14 @@ def fake_ai_analyze_receipt():
         "total": 23.00
     }
 
+current_house_info = get_house_by_id(st.session_state["current_house_id"])
+
 st.sidebar.title("🏠 ShareMate AI")
 st.sidebar.write(f"House: {st.session_state['current_house']}")
 st.sidebar.write(f"User: {st.session_state['current_user']}")
+
+if current_house_info:
+    st.sidebar.write(f"Invite Code: `{current_house_info['invite_code']}`")
 
 if st.sidebar.button("하우스 변경"):
     st.session_state["current_house"] = None
@@ -243,7 +253,8 @@ if menu == "Dashboard":
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("하우스 멤버", "4명")
+        member_count = count_house_members(house_id)
+        st.metric("하우스 멤버", f"{member_count}명")
 
     with col2:
         st.metric("정산 대기", f"${pending_settlement_total:.2f}")

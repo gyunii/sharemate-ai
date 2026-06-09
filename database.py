@@ -299,3 +299,26 @@ def ensure_default_house(user_name):
             invite_code="SUNNY123",
             created_by=user_name
         )
+
+def get_house_members(house_id):
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT user_name, role
+        FROM house_members
+        WHERE house_id = ?
+        ORDER BY id ASC
+        """,
+        (house_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_house_by_id(house_id):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM houses WHERE id = ?",
+        (house_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
