@@ -32,17 +32,26 @@ from database import (
     get_house_by_id
 )
 
+# -----------------------------
+# OpenAI 설정
+# -----------------------------
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
+# -----------------------------
+# Streamlit 기본 설정
+# -----------------------------
 st.set_page_config(
     page_title="RoomSync",
     page_icon="🏠",
     layout="wide"
 )
 
+# -----------------------------
+# DB 초기화
+# -----------------------------
 init_db()
 
 # -----------------------------
@@ -60,8 +69,9 @@ if "current_house" not in st.session_state:
 if "current_house_id" not in st.session_state:
     st.session_state["current_house_id"] = None
 
+
 # -----------------------------
-# Login / House Entry
+# 로그인 페이지
 # -----------------------------
 def show_login_page():
     st.title("🏠 RoomSync")
@@ -77,21 +87,31 @@ def show_login_page():
     if st.button("로그인"):
         email = email.strip()
         password = password.strip()
-        
+
         email_pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
         if email == "" or password == "":
             st.error("이메일과 비밀번호를 입력해주세요.")
-            
+
         elif not re.match(email_pattern, email):
             st.error("이메일 형식에 맞게 입력해주세요. 예: example@email.com")
-            
+
+        elif len(password) < 4:
+            st.error("비밀번호는 최소 4자 이상 입력해주세요.")
+
         else:
             user_name = email.split("@")[0]
-            
+
             st.session_state["logged_in"] = True
             st.session_state["current_user"] = user_name
             st.rerun()
 
+    st.caption("현재는 MVP 테스트용 로그인입니다.")
+
+
+# -----------------------------
+# 하우스 선택 페이지
+# -----------------------------
 def show_house_select_page():
     st.title("🏠 내 쉐어하우스")
     st.write(f"{st.session_state['current_user']}님, 참여할 쉐어하우스를 선택하세요.")
@@ -139,6 +159,10 @@ def show_house_select_page():
         if st.button("하우스 만들기"):
             if new_house_name.strip() == "":
                 st.error("하우스 이름을 입력해주세요.")
+
+            elif len(new_house_name.strip()) < 3:
+                st.error("하우스 이름은 3자 이상 입력해주세요.")
+
             else:
                 invite_code = new_house_name.upper().replace(" ", "")[:5] + "123"
 
@@ -162,19 +186,24 @@ def show_house_select_page():
         invite_code_input = st.text_input("초대코드 입력", placeholder="예: SUNNY123")
 
         if st.button("초대코드로 참여"):
-            matched_house = get_house_by_invite_code(invite_code_input)
+            invite_code_input = invite_code_input.strip().upper()
 
-            if matched_house:
-                joined = join_house(matched_house["id"], user_name)
-
-                if joined:
-                    st.success(f"{matched_house['name']}에 참여했습니다.")
-                else:
-                    st.info("이미 참여 중인 하우스입니다.")
-
-                st.rerun()
+            if invite_code_input == "":
+                st.error("초대코드를 입력해주세요.")
             else:
-                st.error("일치하는 초대코드가 없습니다.")
+                matched_house = get_house_by_invite_code(invite_code_input)
+
+                if matched_house:
+                    joined = join_house(matched_house["id"], user_name)
+
+                    if joined:
+                        st.success(f"{matched_house['name']}에 참여했습니다.")
+                    else:
+                        st.info("이미 참여 중인 하우스입니다.")
+
+                    st.rerun()
+                else:
+                    st.error("일치하는 초대코드가 없습니다.")
 
     st.divider()
 
@@ -185,6 +214,10 @@ def show_house_select_page():
         st.session_state["current_house_id"] = None
         st.rerun()
 
+
+# -----------------------------
+# 로그인 / 하우스 진입 처리
+# -----------------------------
 if not st.session_state["logged_in"]:
     show_login_page()
     st.stop()
@@ -193,8 +226,9 @@ if st.session_state["current_house"] is None:
     show_house_select_page()
     st.stop()
 
+
 # -----------------------------
-# House Members
+# 하우스 멤버 불러오기
 # -----------------------------
 house_members = get_house_members(st.session_state["current_house_id"])
 roommates = [member["user_name"] for member in house_members]
@@ -202,8 +236,9 @@ roommates = [member["user_name"] for member in house_members]
 if len(roommates) == 0:
     roommates = [st.session_state["current_user"]]
 
+
 # -----------------------------
-# Receipt AI Functions
+# 영수증 AI 분석 함수
 # -----------------------------
 def get_mock_receipt_data():
     return {
@@ -214,6 +249,7 @@ def get_mock_receipt_data():
         ],
         "total": 12.00
     }
+
 
 def extract_json_from_text(text):
     try:
@@ -226,6 +262,7 @@ def extract_json_from_text(text):
         return json.loads(match.group(0))
 
     raise ValueError("OpenAI 응답에서 JSON을 찾을 수 없습니다.")
+
 
 def analyze_receipt_with_openai(uploaded_file):
     if client is None:
@@ -286,6 +323,7 @@ Format:
     result_text = response.output_text
     return extract_json_from_text(result_text)
 
+
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -301,8 +339,10 @@ if current_house_info:
 if st.sidebar.button("하우스 변경"):
     st.session_state["current_house"] = None
     st.session_state["current_house_id"] = None
+
     if "receipt_data" in st.session_state:
         del st.session_state["receipt_data"]
+
     st.rerun()
 
 if st.sidebar.button("로그아웃"):
@@ -310,14 +350,17 @@ if st.sidebar.button("로그아웃"):
     st.session_state["current_user"] = None
     st.session_state["current_house"] = None
     st.session_state["current_house_id"] = None
+
     if "receipt_data" in st.session_state:
         del st.session_state["receipt_data"]
+
     st.rerun()
 
 menu = st.sidebar.radio(
     "메뉴",
     ["Dashboard", "Receipt Split", "Settlements", "Chores", "Shopping List"]
 )
+
 
 # -----------------------------
 # Dashboard
@@ -431,6 +474,7 @@ if menu == "Dashboard":
     else:
         st.info("정산 내역이 없습니다.")
 
+
 # -----------------------------
 # Receipt Split
 # -----------------------------
@@ -461,14 +505,14 @@ elif menu == "Receipt Split":
                 if "receipt_data" in st.session_state:
                     del st.session_state["receipt_data"]
 
-                with st.spinner("영수증을 분석하는 중입니다..."):
+                with st.spinner("OpenAI Vision으로 영수증을 분석하는 중입니다..."):
                     st.session_state["receipt_data"] = analyze_receipt_with_openai(uploaded_file)
 
                 st.success("AI 분석 완료")
 
-            except Exception as e:
-                st.warning("OpenAI API 키, 크레딧 또는 사용량 문제로 Mock 분석 결과를 표시합니다.")
-                st.caption("발표 시연용 fallback 데이터입니다. 실제 API 크레딧이 있으면 OpenAI Vision 결과가 표시됩니다.")
+            except Exception:
+                st.warning("현재는 발표 시연용 Mock 분석 결과를 표시합니다.")
+                st.caption("실제 OpenAI API 크레딧이 충전되면 OpenAI Vision 분석 결과가 표시됩니다.")
 
                 st.session_state["receipt_data"] = get_mock_receipt_data()
 
@@ -530,6 +574,15 @@ elif menu == "Receipt Split":
             default=roommates
         )
 
+        if len(selected_members) > 0:
+            share_amount_preview = shared_total / len(selected_members)
+
+            st.info(
+                f"공용 품목 합계 ${shared_total:.2f} ÷ "
+                f"정산 대상 {len(selected_members)}명 = "
+                f"1인 부담금 ${share_amount_preview:.2f}"
+            )
+
         if st.button("정산 생성하기"):
             if len(selected_members) == 0:
                 st.error("정산 대상이 최소 1명 이상 필요합니다.")
@@ -577,6 +630,7 @@ elif menu == "Receipt Split":
                     st.success("정산 생성 완료. DB와 Dashboard에 반영되었습니다.")
                 else:
                     st.info("결제자만 정산 대상에 포함되어 있어 받을 금액이 없습니다.")
+
 
 # -----------------------------
 # Settlements
@@ -648,6 +702,7 @@ elif menu == "Settlements":
                     if st.button("삭제", key=f"delete_settlement_{settlement['id']}"):
                         delete_settlement(settlement["id"])
                         st.rerun()
+
 
 # -----------------------------
 # Chores
@@ -723,6 +778,7 @@ elif menu == "Chores":
                     if st.button("삭제", key=f"delete_chore_{chore['id']}"):
                         delete_chore(chore["id"])
                         st.rerun()
+
 
 # -----------------------------
 # Shopping List
