@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 from datetime import date
+import os
+import json
+import base64
+import re
+from dotenv import load_dotenv
+from openai import OpenAI
 
 from database import (
     init_db,
@@ -22,14 +28,17 @@ from database import (
     create_house,
     join_house,
     count_house_members,
-    ensure_default_house,
     get_house_members,
     get_house_by_id
 )
 
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 st.set_page_config(
-    page_title="ShareMate AI",
+    page_title="RoomSync",
     page_icon="🏠",
     layout="wide"
 )
@@ -37,7 +46,7 @@ st.set_page_config(
 init_db()
 
 # -----------------------------
-# Login / House Entry
+# Session State
 # -----------------------------
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -51,10 +60,12 @@ if "current_house" not in st.session_state:
 if "current_house_id" not in st.session_state:
     st.session_state["current_house_id"] = None
 
-
+# -----------------------------
+# Login / House Entry
+# -----------------------------
 def show_login_page():
-    st.title("🏠 ShareMate AI")
-    st.write("호주 쉐어하우스 공동생활 관리를 위한 AI 기반 서비스")
+    st.title("🏠 RoomSync")
+    st.write("OpenAI Vision 기반 쉐어하우스 공동생활 관리 플랫폼")
 
     st.divider()
 
@@ -62,18 +73,24 @@ def show_login_page():
 
     email = st.text_input("이메일", placeholder="example@email.com")
     password = st.text_input("비밀번호", type="password")
-    
+
     if st.button("로그인"):
-        if email.strip() == "" or password.strip() == "":
+        email = email.strip()
+        password = password.strip()
+        
+        email_pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+        if email == "" or password == "":
             st.error("이메일과 비밀번호를 입력해주세요.")
+            
+        elif not re.match(email_pattern, email):
+            st.error("이메일 형식에 맞게 입력해주세요. 예: example@email.com")
+            
         else:
             user_name = email.split("@")[0]
             
             st.session_state["logged_in"] = True
             st.session_state["current_user"] = user_name
             st.rerun()
-            
-    st.caption("현재는 MVP 테스트용 가짜 로그인입니다.")
 
 def show_house_select_page():
     st.title("🏠 내 쉐어하우스")
@@ -176,27 +193,105 @@ if st.session_state["current_house"] is None:
     show_house_select_page()
     st.stop()
 
+# -----------------------------
+# House Members
+# -----------------------------
 house_members = get_house_members(st.session_state["current_house_id"])
 roommates = [member["user_name"] for member in house_members]
 
 if len(roommates) == 0:
     roommates = [st.session_state["current_user"]]
 
-def fake_ai_analyze_receipt():
+# -----------------------------
+# Receipt AI Functions
+# -----------------------------
+def get_mock_receipt_data():
     return {
-        "store_name": "Woolworths",
+        "store_name": "Sample Receipt",
         "items": [
-            {"name": "Milk", "price": 3.50},
-            {"name": "Toilet Paper", "price": 8.00},
-            {"name": "Chips", "price": 4.20},
-            {"name": "Detergent", "price": 7.30}
+            {"name": "MATCHA GELATO SINGLE", "price": 15.00},
+            {"name": "Discount", "price": -3.00}
         ],
-        "total": 23.00
+        "total": 12.00
     }
 
+def extract_json_from_text(text):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        return json.loads(match.group(0))
+
+    raise ValueError("OpenAI 응답에서 JSON을 찾을 수 없습니다.")
+
+def analyze_receipt_with_openai(uploaded_file):
+    if client is None:
+        raise ValueError(".env 파일에 OPENAI_API_KEY가 없습니다.")
+
+    image_bytes = uploaded_file.getvalue()
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
+    mime_type = uploaded_file.type if uploaded_file.type else "image/jpeg"
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": """
+You are an OCR assistant for receipts.
+
+Analyze the uploaded receipt image and extract:
+- store name
+- purchased items
+- item prices
+- total amount
+
+Rules:
+1. Return only valid JSON.
+2. Do not include markdown.
+3. Do not include explanations.
+4. If a discount appears, include it as an item with a negative price.
+5. Use numbers only for price and total.
+6. If the store name is unclear, use "Unknown Store".
+7. The sum of items should be close to the total if possible.
+
+Format:
+{
+  "store_name": "",
+  "items": [
+    {
+      "name": "",
+      "price": 0.00
+    }
+  ],
+  "total": 0.00
+}
+"""
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{mime_type};base64,{base64_image}"
+                    }
+                ]
+            }
+        ]
+    )
+
+    result_text = response.output_text
+    return extract_json_from_text(result_text)
+
+# -----------------------------
+# Sidebar
+# -----------------------------
 current_house_info = get_house_by_id(st.session_state["current_house_id"])
 
-st.sidebar.title("🏠 ShareMate AI")
+st.sidebar.title("🏠 RoomSync")
 st.sidebar.write(f"House: {st.session_state['current_house']}")
 st.sidebar.write(f"User: {st.session_state['current_user']}")
 
@@ -206,6 +301,8 @@ if current_house_info:
 if st.sidebar.button("하우스 변경"):
     st.session_state["current_house"] = None
     st.session_state["current_house_id"] = None
+    if "receipt_data" in st.session_state:
+        del st.session_state["receipt_data"]
     st.rerun()
 
 if st.sidebar.button("로그아웃"):
@@ -213,6 +310,8 @@ if st.sidebar.button("로그아웃"):
     st.session_state["current_user"] = None
     st.session_state["current_house"] = None
     st.session_state["current_house_id"] = None
+    if "receipt_data" in st.session_state:
+        del st.session_state["receipt_data"]
     st.rerun()
 
 menu = st.sidebar.radio(
@@ -225,7 +324,7 @@ menu = st.sidebar.radio(
 # -----------------------------
 if menu == "Dashboard":
     st.title(f"🏠 {st.session_state['current_house']} Dashboard")
-    st.write("호주 쉐어하우스 공동생활 관리 대시보드")
+    st.write("OpenAI Vision 기반 쉐어하우스 공동생활 관리 플랫폼")
 
     house_id = st.session_state["current_house_id"]
 
@@ -358,8 +457,20 @@ elif menu == "Receipt Split":
         )
 
         if st.button("AI로 영수증 분석하기"):
-            st.session_state["receipt_data"] = fake_ai_analyze_receipt()
-            st.success("AI 분석 완료")
+            try:
+                if "receipt_data" in st.session_state:
+                    del st.session_state["receipt_data"]
+
+                with st.spinner("영수증을 분석하는 중입니다..."):
+                    st.session_state["receipt_data"] = analyze_receipt_with_openai(uploaded_file)
+
+                st.success("AI 분석 완료")
+
+            except Exception as e:
+                st.warning("OpenAI API 키, 크레딧 또는 사용량 문제로 Mock 분석 결과를 표시합니다.")
+                st.caption("발표 시연용 fallback 데이터입니다. 실제 API 크레딧이 있으면 OpenAI Vision 결과가 표시됩니다.")
+
+                st.session_state["receipt_data"] = get_mock_receipt_data()
 
     else:
         st.info("JPG, JPEG, PNG 형식의 영수증 이미지를 선택해주세요.")
@@ -370,10 +481,26 @@ elif menu == "Receipt Split":
         st.divider()
         st.subheader("2. AI 분석 결과")
 
-        st.write(f"매장명: {receipt_data['store_name']}")
-        st.write(f"영수증 총액: ${receipt_data['total']:.2f}")
+        store_name = receipt_data.get("store_name", "Unknown Store")
+        items = receipt_data.get("items", [])
+        total = float(receipt_data.get("total", 0.0))
 
-        df = pd.DataFrame(receipt_data["items"])
+        st.write(f"매장명: {store_name}")
+        st.write(f"영수증 총액: ${total:.2f}")
+
+        df = pd.DataFrame(items)
+
+        if df.empty:
+            st.error("분석된 품목이 없습니다. 다른 영수증 이미지를 업로드해보세요.")
+            st.stop()
+
+        if "name" not in df.columns:
+            df["name"] = "Unknown Item"
+
+        if "price" not in df.columns:
+            df["price"] = 0.0
+
+        df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(0.0)
         df["is_shared"] = True
 
         edited_df = st.data_editor(
@@ -414,7 +541,7 @@ elif menu == "Receipt Split":
                 for member in selected_members:
                     if member != payer:
                         settlement_rows.append({
-                            "content": f"{receipt_data['store_name']} 영수증",
+                            "content": f"{store_name} 영수증",
                             "debtor": member,
                             "creditor": payer,
                             "amount": round(share_amount, 2),
@@ -429,7 +556,7 @@ elif menu == "Receipt Split":
                             row["creditor"],
                             row["amount"],
                             st.session_state["current_house_id"]
-                            )
+                        )
 
                     settlement_df = pd.DataFrame(settlement_rows)
                     settlement_df = settlement_df.rename(columns={
@@ -450,6 +577,7 @@ elif menu == "Receipt Split":
                     st.success("정산 생성 완료. DB와 Dashboard에 반영되었습니다.")
                 else:
                     st.info("결제자만 정산 대상에 포함되어 있어 받을 금액이 없습니다.")
+
 # -----------------------------
 # Settlements
 # -----------------------------
@@ -515,11 +643,12 @@ elif menu == "Settlements":
                         if st.button("대기로 변경", key=f"pending_settlement_{settlement['id']}"):
                             update_settlement_status(settlement["id"], "대기")
                             st.rerun()
-                
+
                 with col6:
                     if st.button("삭제", key=f"delete_settlement_{settlement['id']}"):
                         delete_settlement(settlement["id"])
                         st.rerun()
+
 # -----------------------------
 # Chores
 # -----------------------------
@@ -546,11 +675,12 @@ elif menu == "Chores":
         if chore_title.strip() == "":
             st.error("할 일 이름을 입력해주세요.")
         else:
-            add_chore(chore_title,
-                      assigned_to,
-                      str(due_date),
-                      st.session_state["current_house_id"]
-                      )
+            add_chore(
+                chore_title,
+                assigned_to,
+                str(due_date),
+                st.session_state["current_house_id"]
+            )
             st.success(f"{assigned_to} 담당으로 '{chore_title}' 할 일이 추가되었습니다.")
             st.rerun()
 
@@ -588,6 +718,7 @@ elif menu == "Chores":
                         if st.button("되돌리기", key=f"undo_chore_{chore['id']}"):
                             update_chore_status(chore["id"], "진행 전")
                             st.rerun()
+
                 with col6:
                     if st.button("삭제", key=f"delete_chore_{chore['id']}"):
                         delete_chore(chore["id"])
@@ -620,7 +751,7 @@ elif menu == "Shopping List":
                 item_name,
                 added_by,
                 st.session_state["current_house_id"]
-                )
+            )
             st.success(f"'{item_name}' 항목이 공동 장바구니에 추가되었습니다.")
             st.rerun()
 
