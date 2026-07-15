@@ -8,6 +8,7 @@ import base64
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
+import streamlit.components.v1 as components
 
 from database import (
     init_db,
@@ -55,6 +56,201 @@ st.set_page_config(
 init_db()
 
 # -----------------------------
+# 커스텀 스타일 (앱 내 Light/Dark 토글 대응)
+# -----------------------------
+current_theme = st.context.theme.type
+
+if current_theme == "dark":
+    theme_vars = """
+    :root {
+        --rs-bg: #241620;
+        --rs-sidebar-bg: #3A2233;
+        --rs-primary: #FF8FA3;
+        --rs-primary-dark: #FFB3C1;
+        --rs-text: #FCEAF0;
+        --rs-card-bg: #2E1B29;
+        --rs-yellow-bg: #4A3B1E;
+        --rs-yellow-border: #FFD23F;
+        --rs-yellow-text: #FFD23F;
+    }
+    """
+else:
+    theme_vars = """
+    :root {
+        --rs-bg: #FFF6F2;
+        --rs-sidebar-bg: #FFD9E3;
+        --rs-primary: #FF6F91;
+        --rs-primary-dark: #E85577;
+        --rs-text: #3A2E39;
+        --rs-card-bg: #FFFFFF;
+        --rs-yellow-bg: #FFE8A3;
+        --rs-yellow-border: #FFD23F;
+        --rs-yellow-text: #7A5A00;
+    }
+    """
+
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Poppins:wght@400;500;600&display=swap');
+
+{theme_vars}
+
+html, body, [class*="css"] {{
+    font-family: 'Poppins', sans-serif;
+    color: var(--rs-text);
+}}
+
+.stApp {{
+    background: var(--rs-bg);
+}}
+
+h1, h2, h3 {{
+    font-family: 'Fredoka', sans-serif !important;
+    color: var(--rs-primary) !important;
+    font-weight: 600 !important;
+}}
+
+h1 {{
+    letter-spacing: -0.5px;
+}}
+
+section[data-testid="stSidebar"] {{
+    background: var(--rs-sidebar-bg);
+    border-right: 3px solid var(--rs-primary);
+}}
+
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {{
+    color: var(--rs-text) !important;
+}}
+
+section[data-testid="stSidebar"] code {{
+    background: var(--rs-yellow-border);
+    color: #3A2E39;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-weight: 600;
+}}
+
+.stButton > button {{
+    border-radius: 999px;
+    border: 2px solid var(--rs-primary);
+    background: var(--rs-bg);
+    color: var(--rs-primary);
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 500;
+    padding: 0.5rem 1.2rem;
+    transition: all 0.15s ease;
+}}
+
+.stButton > button:hover {{
+    background: var(--rs-primary);
+    color: #FFFFFF;
+    border-color: var(--rs-primary);
+    transform: translateY(-1px);
+}}
+
+.stButton > button[kind="primary"] {{
+    background: var(--rs-primary);
+    color: #FFFFFF;
+    border: 2px solid var(--rs-primary);
+    box-shadow: 0 3px 0 var(--rs-primary-dark);
+}}
+
+.stButton > button[kind="primary"]:hover {{
+    background: var(--rs-primary-dark);
+}}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {{
+    border-radius: 18px !important;
+    border: 2px solid var(--rs-sidebar-bg) !important;
+    background: var(--rs-card-bg);
+    box-shadow: 0 4px 12px rgba(255, 111, 145, 0.08);
+}}
+
+hr {{
+    border-top: 2px dashed var(--rs-sidebar-bg);
+}}
+
+div[data-testid="stMetric"] {{
+    background: var(--rs-card-bg);
+    border: 2px solid var(--rs-sidebar-bg);
+    border-radius: 16px;
+    padding: 12px 16px;
+}}
+
+div[data-testid="stMetricValue"] {{
+    color: var(--rs-primary);
+    font-family: 'Fredoka', sans-serif;
+}}
+
+div[data-testid="stDataFrame"] {{
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--rs-sidebar-bg);
+}}
+
+.sidebar-info-card {{
+    background: var(--rs-card-bg);
+    border: 2px solid var(--rs-primary);
+    border-radius: 14px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+}}
+
+.sidebar-info-card .info-label {{
+    font-family: 'Fredoka', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--rs-primary);
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+}}
+
+.sidebar-info-card .info-value {{
+    font-family: 'Poppins', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--rs-text);
+}}
+
+.invite-card {{
+    background: var(--rs-yellow-bg);
+    border-color: var(--rs-yellow-border);
+}}
+
+.invite-code-value {{
+    letter-spacing: 2px;
+    color: var(--rs-yellow-text);
+}}
+
+section[data-testid="stSidebar"] div[data-testid="stRadio"] label {{
+    font-family: 'Fredoka', sans-serif;
+}}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] > label {{
+    padding: 12px 14px;
+    margin-bottom: 4px;
+    border-radius: 12px;
+    font-size: 17px;
+    font-weight: 600;
+    width: 100%;
+    transition: background 0.15s ease, transform 0.1s ease;
+}}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {{
+    background: color-mix(in srgb, var(--rs-primary) 20%, transparent);
+    transform: translateX(2px);
+}}
+
+section[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {{
+    transform: scale(1.25);
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------------
 # Session State
 # -----------------------------
 if "logged_in" not in st.session_state:
@@ -69,6 +265,8 @@ if "current_house" not in st.session_state:
 if "current_house_id" not in st.session_state:
     st.session_state["current_house_id"] = None
 
+if "menu" not in st.session_state:          
+    st.session_state["menu"] = "Dashboard"  
 
 # -----------------------------
 # 로그인 페이지
@@ -327,14 +525,29 @@ Format:
 # -----------------------------
 # Sidebar
 # -----------------------------
-current_house_info = get_house_by_id(st.session_state["current_house_id"])
+current_house_info = get_house_by_id(st.session_state["current_house_id"])  
+
 
 st.sidebar.title("🏠 RoomSync")
-st.sidebar.write(f"House: {st.session_state['current_house']}")
-st.sidebar.write(f"User: {st.session_state['current_user']}")
+
+st.sidebar.markdown(f"""
+<div class="sidebar-info-card">
+    <div class="info-label">HOUSE</div>
+    <div class="info-value">{st.session_state['current_house']}</div>
+</div>
+<div class="sidebar-info-card">
+    <div class="info-label">USER</div>
+    <div class="info-value">{st.session_state['current_user']}</div>
+</div>
+""", unsafe_allow_html=True)
 
 if current_house_info:
-    st.sidebar.write(f"Invite Code: `{current_house_info['invite_code']}`")
+    st.sidebar.markdown(f"""
+    <div class="sidebar-info-card invite-card">
+        <div class="info-label">INVITE CODE</div>
+        <div class="info-value invite-code-value">{current_house_info['invite_code']}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 if st.sidebar.button("하우스 변경"):
     st.session_state["current_house"] = None
@@ -356,11 +569,39 @@ if st.sidebar.button("로그아웃"):
 
     st.rerun()
 
-menu = st.sidebar.radio(
+menu_items = ["Dashboard", "Receipt Split", "Settlements", "Chores", "Shopping List"]
+
+sidebar_menu = st.sidebar.radio(
     "메뉴",
-    ["Dashboard", "Receipt Split", "Settlements", "Chores", "Shopping List"]
+    menu_items,
+    index=menu_items.index(st.session_state["menu"])
 )
 
+if sidebar_menu != st.session_state["menu"]:
+    st.session_state["menu"] = sidebar_menu
+    st.rerun()
+
+
+# -----------------------------
+# Top Navigation
+# -----------------------------
+nav_cols = st.columns(len(menu_items))
+
+for col, item in zip(nav_cols, menu_items):
+    with col:
+        is_selected = st.session_state["menu"] == item
+        if st.button(
+            item,
+            key=f"nav_{item}",
+            use_container_width=True,
+            type="primary" if is_selected else "secondary"
+        ):
+            st.session_state["menu"] = item
+            st.rerun()
+
+menu = st.session_state["menu"]
+
+st.divider()
 
 # -----------------------------
 # Dashboard
